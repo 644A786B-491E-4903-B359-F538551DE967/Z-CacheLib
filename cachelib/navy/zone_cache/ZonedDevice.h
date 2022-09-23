@@ -242,7 +242,7 @@ class ZonedDevice final : public Device {
   // when patchWrite = true, maxWriteSize should be 0.
   // =false is middle layer
   // step 2.
-  bool patchWrite = true;
+  bool patchWrite = false;
   // make sense only when using patchWrite
   bool useRewrite = false;
 
@@ -256,7 +256,7 @@ class ZonedDevice final : public Device {
   uint64_t dataWriteForMoved = 0;
   uint64_t newZoneMoved = 0;
   uint64_t zoneShift_ = 0;
-  bool useStatsInLRU = true;
+  bool useStatsInLRU = false;
   double resetPercent = 1;
 
   double hotAvg = 0;
