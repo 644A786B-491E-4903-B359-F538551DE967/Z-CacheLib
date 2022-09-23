@@ -16,8 +16,10 @@
 
 #include "cachelib/navy/block_cache/RegionManager.h"
 
+#include "cachelib/navy/block_cache/LruPolicy.h"
 #include "cachelib/navy/common/Utils.h"
 #include "cachelib/navy/scheduler/JobScheduler.h"
+#include "cachelib/navy/zone_cache/ZonedDevice.h"
 
 namespace facebook {
 namespace cachelib {
@@ -33,6 +35,8 @@ RegionManager::RegionManager(uint32_t numRegions,
                              std::unique_ptr<EvictionPolicy> policy,
                              uint32_t numInMemBuffers,
                              uint16_t numPriorities,
+                             bool useRewrite,
+                             bool useReset,
                              uint16_t inMemBufFlushRetryLimit)
     : numPriorities_{numPriorities},
       inMemBufFlushRetryLimit_{inMemBufFlushRetryLimit},
@@ -46,8 +50,12 @@ RegionManager::RegionManager(uint32_t numRegions,
       scheduler_{scheduler},
       evictCb_{evictCb},
       cleanupCb_{cleanupCb},
+      useRewrite_{useRewrite},
+      useReset_{useReset},
       numInMemBuffers_{numInMemBuffers} {
   XLOGF(INFO, "{} regions, {} bytes each", numRegions_, regionSize_);
+  XLOGF(INFO, "useRewrite_: {} useReset_: {}", useRewrite_, useReset_);
+
   for (uint32_t i = 0; i < numRegions; i++) {
     regions_[i] = std::make_unique<Region>(RegionId{i}, regionSize_);
   }
@@ -58,7 +66,53 @@ RegionManager::RegionManager(uint32_t numRegions,
     buffers_.push_back(
         std::make_unique<Buffer>(device.makeIOBuffer(regionSize_)));
   }
+  
+  if (useReset_) {
+    auto callback = [&](uint64_t addr, folly::Baton<> &done) {
+      auto rid = RegionId((addr - baseOffset_) / regionSize_);
+      std::map<std::string, double> lruInfo;
+      const std::unique_ptr<LruPolicy>& lru = (const std::unique_ptr<LruPolicy>&)policy_;
+      auto inLRU = lru->readLRUInfo(rid, lruInfo);
+      if (useStatsInLRU && inLRU) { 
+        double secsSinceAccess = lruInfo.at("secsSinceAccess");
+        double secondsSinceCreation = lruInfo.at("secsSinceCreate");
+        double hits = lruInfo.at("hits");
+        // navy_bc_lru_region_hits_estimate_avg
+        // navy_bc_lru_secs_since_insertion_avg
+        // navy_bc_lru_secs_since_access_avg
+        double avg_hits = 0;
+        double avg_since_create = 0;
+        double avg_since_assess = 0;
 
+        policy_->getCounters([&](folly::StringPiece name, double count) {
+          if (name == "navy_bc_hits_reset_avg") {
+            avg_hits = count;
+          } else if (name == "navy_bc_lru_secs_since_insertion_avg") {
+            avg_since_create = count;
+            // p5 p10 p25
+          } else if (name == "navy_bc_lru_reset_p50") {
+            avg_since_assess = count;
+          }
+        });
+        // double avg = secondsSinceCreation;
+        // XLOGF(INFO, "{} {} {} {} {} {}", hits, avg_hits, secondsSinceCreation, avg_since_create, secsSinceAccess, avg_since_assess);
+
+        if (hits >= avg_hits
+            // && secondsSinceCreation < avg_since_create * 0.50
+            && secsSinceAccess <= avg_since_assess) {
+          // keep
+          done.post();
+          return true;
+        }
+      }
+      // async
+      policy_->evictRegion(rid);
+      reclaimRegion(rid, done);
+      return false;
+    };
+    auto &zns = (ZonedDevice&)device_;
+    zns.setResetCallBack(std::move(callback));
+  }
   resetEvictionPolicy();
 }
 
@@ -105,10 +159,18 @@ void RegionManager::reset() {
 
 Region::FlushRes RegionManager::flushBuffer(const RegionId& rid) {
   auto& region = getRegion(rid);
-  auto callBack = [this](RelAddress addr, BufferView view) {
+  auto hits = region.getMemHit();
+  auto callBack = [this, hits](RelAddress addr, BufferView view) {
     auto writeBuffer = device_.makeIOBuffer(view.size());
     writeBuffer.copyFrom(0, view);
-    if (!deviceWrite(addr, std::move(writeBuffer))) {
+    auto err = true;
+    if (useReset_) {
+      err = !znsWrite(addr, std::move(writeBuffer), hits);
+    } else {
+      err = !deviceWrite(addr, std::move(writeBuffer));
+    }
+    if (err) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
       return false;
     }
     numInMemBufWaitingFlush_.dec();
@@ -277,6 +339,68 @@ void RegionManager::doFlush(RegionId rid, bool async) {
   }
 }
 
+JobExitCode RegionManager::reclaimRegion(RegionId rid, folly::Baton<> &done) {
+  scheduler_.enqueue(
+      [this, rid, &done] {
+        const auto startTime = getSteadyClock();
+        auto& region = getRegion(rid);
+        if (!region.readyForReclaim()) {
+          // Once a region is set exclusive, all future accesses will be
+          // blocked. However there might still be accesses in-flight,
+          // so we would retry if that's the case.
+          return JobExitCode::Reschedule;
+        }
+
+        XLOG(DBG, "can reclaim");
+        // We know now we're the only thread working with this region.
+        // Hence, it's safe to access @Region without lock.
+        if (region.getNumItems() != 0) {
+          XDCHECK(!region.hasBuffer());
+          auto desc = RegionDescriptor::makeReadDescriptor(
+              OpenStatus::Ready, RegionId{rid}, true /* physRead */);
+          auto sizeToRead = region.getLastEntryEndOffset();
+          // check is zns device
+          Buffer buffer;
+          if (useRewrite_) {
+            buffer = read(desc, RelAddress{rid, 0}, sizeToRead);
+          } else {
+            buffer = znsEvict(desc, RelAddress{rid, 0}, sizeToRead, regionSize_);
+          }
+          if (buffer.size() != sizeToRead) {
+            // TODO: remove when we fix T95777575
+            XLOGF(ERR,
+                  "Failed to read region {} during reclaim. Region size to "
+                  "read: {}, Actually read: {}",
+                  rid.index(),
+                  sizeToRead,
+                  buffer.size());
+            reclaimRegionErrors_.inc();
+          } else {
+            doEviction(rid, buffer.view());
+          }
+        }
+        // releaseEvictedRegion(rid, startTime);
+        externalFragmentation_.sub(getRegion(rid).getFragmentationSize());
+
+        seqNumber_.fetch_add(1, std::memory_order_acq_rel);
+
+        region.reset();
+        {
+          std::lock_guard<std::mutex> lock{cleanRegionsMutex_};
+          // reclaimsScheduled_ --;
+          cleanRegions_.push_back(rid);
+        }
+        reclaimTimeCountUs_.add(toMicros(getSteadyClock() - startTime).count());
+        reclaimCount_.inc();
+
+        done.post();
+        return JobExitCode::Done;
+      },
+      "reclaim.evict",
+      JobType::Reclaim);
+  return JobExitCode::Done;
+}
+
 JobExitCode RegionManager::startReclaim() {
   auto rid = evict();
   if (!rid.valid()) {
@@ -299,7 +423,13 @@ JobExitCode RegionManager::startReclaim() {
           auto desc = RegionDescriptor::makeReadDescriptor(
               OpenStatus::Ready, RegionId{rid}, true /* physRead */);
           auto sizeToRead = region.getLastEntryEndOffset();
-          auto buffer = read(desc, RelAddress{rid, 0}, sizeToRead);
+          // check is zns device
+          Buffer buffer;
+          if (useRewrite_) {
+            buffer = read(desc, RelAddress{rid, 0}, sizeToRead);
+          } else {
+            buffer = znsEvict(desc, RelAddress{rid, 0}, sizeToRead, regionSize_);
+          }
           if (buffer.size() != sizeToRead) {
             // TODO: remove when we fix T95777575
             XLOGF(ERR,
@@ -496,6 +626,18 @@ bool RegionManager::deviceWrite(RelAddress addr, Buffer buf) {
   return true;
 }
 
+bool RegionManager::znsWrite(RelAddress addr, Buffer buf, uint64_t hotness) {
+  const auto bufSize = buf.size();
+  XDCHECK(isValidIORange(addr.offset(), bufSize));
+  auto physOffset = physicalOffset(addr);
+  auto& znsDevice = (ZonedDevice&) device_;
+  if (!znsDevice.writeWihtHotness(physOffset, std::move(buf), hotness)) {
+    return false;
+  }
+  physicalWrittenCount_.add(bufSize);
+  return true;
+}
+
 void RegionManager::write(RelAddress addr, Buffer buf) {
   auto rid = addr.rid();
   auto& region = getRegion(rid);
@@ -516,8 +658,24 @@ Buffer RegionManager::read(const RegionDescriptor& desc,
     return buffer;
   }
   XDCHECK(isValidIORange(addr.offset(), size));
-
+  
+  // std::cout << addr << std::endl;
+  XLOGF(DBG, "0x{:X}", physicalOffset(addr));
   return device_.read(physicalOffset(addr), size);
+}
+
+Buffer RegionManager::znsEvict(const RegionDescriptor& desc,
+                               RelAddress addr,
+                               size_t size, size_t evictSize) const {
+  auto rid = addr.rid();
+  auto& region = getRegion(rid);
+  // Do not expect to read beyond what was already written
+  XDCHECK_LE(addr.offset() + size, region.getLastEntryEndOffset());
+  XDCHECK(isValidIORange(addr.offset(), size));
+  // std::cout << addr << "" << physicalOffset(addr) << std::endl;
+  auto &zdevice = (ZonedDevice&)device_;
+  // zdevice.evict(size, physicalOffset(addr))
+  return zdevice.evict(physicalOffset(addr), size, evictSize);
 }
 
 void RegionManager::flush() { device_.flush(); }

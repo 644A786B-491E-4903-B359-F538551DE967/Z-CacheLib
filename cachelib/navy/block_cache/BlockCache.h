@@ -47,6 +47,8 @@ class BlockCache final : public Engine {
  public:
   // See CacheProto for details
   struct Config {
+    ZnsConfig znsConfig;
+    
     Device* device{};
     DestructorCallback destructorCb;
     // Checksum data read/written
@@ -321,6 +323,8 @@ class BlockCache final : public Engine {
       const BlockCacheReinsertionConfig& reinsertionConfig);
 
   const serialization::BlockCacheConfig config_;
+  const ZnsConfig znsConfig_;
+
   const uint16_t numPriorities_{};
   const DestructorCallback destructorCb_;
   const bool checksumData_{};

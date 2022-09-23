@@ -47,6 +47,16 @@ class FifoPolicy final : public EvictionPolicy {
 
   void touch(RegionId /* rid */) override {}
 
+  bool evictRegion(RegionId &id) override {
+    // for (auto it = queue_.begin(); it != queue_.end(); it++) {
+    //   if (it->rid == id) {
+    //     queue_.erase(it);
+    //     return true;
+    //   }
+    // }
+    return false;
+  }
+
   // Adds a new region to the queue for tracking.
   void track(const Region& region) override;
 
@@ -124,6 +134,10 @@ class SegmentedFifoPolicy final : public EvictionPolicy {
 
   // Evicts the region with the lowest priority and stops tracking.
   RegionId evict() override;
+
+  bool evictRegion(RegionId &id) override {
+    return false;
+  };
 
   // Resets Segmented FIFO policy to the initial state.
   void reset() override;

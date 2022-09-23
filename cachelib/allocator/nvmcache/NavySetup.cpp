@@ -83,6 +83,10 @@ uint64_t setupBigHash(const navy::BigHashConfig& bigHashConfig,
 
   proto.setBigHash(std::move(bigHash), bigHashConfig.getSmallItemMaxSize());
 
+  // bigHashConfig.
+  // auto numberZone = 
+  // proto.setDeviceForBigHash();
+
   if (bigHashCacheOffset <= metadataSize) {
     throw std::invalid_argument("NVM cache size is not big enough!");
   }
@@ -98,6 +102,7 @@ void setupBlockCache(const navy::BlockCacheConfig& blockCacheConfig,
                      uint64_t metadataSize,
                      bool usesRaidFiles,
                      bool itemDestructorEnabled,
+                     navy::ZnsConfig znsConfig,
                      cachelib::navy::CacheProto& proto) {
   auto regionSize = blockCacheConfig.getRegionSize();
   if (regionSize != alignUp(regionSize, ioAlignSize)) {
@@ -142,6 +147,7 @@ void setupBlockCache(const navy::BlockCacheConfig& blockCacheConfig,
   blockCache->setItemDestructorEnabled(itemDestructorEnabled);
   blockCache->setPreciseRemove(blockCacheConfig.isPreciseRemove());
 
+  blockCache->setZnsConfig(znsConfig);
   proto.setBlockCache(std::move(blockCache));
 }
 
@@ -184,6 +190,31 @@ void setupCacheProtos(const navy::NavyConfig& config,
 
   // Set up BigHash if enabled
   if (config.isBigHashEnabled()) {
+    // here 
+    if (config.usesZnsFiles()) {
+    // if (false) {
+      auto bucketSize = config.bigHash().getBucketSize();
+        // If enabled, BigHash's storage starts after BlockCache's.
+      const auto sizeReservedForBigHash =
+          totalCacheSize * config.bigHash().getSizePct() / 100ul;
+
+      const uint64_t bigHashCacheOffset =
+          alignUp(totalCacheSize - sizeReservedForBigHash, bucketSize);
+      const uint64_t bigHashCacheSize =
+          alignDown(totalCacheSize - bigHashCacheOffset, bucketSize);
+      auto numberZone = bigHashCacheSize / 1024 / 1024 / 1024 + 1;
+
+      auto znsForBigHash = cachelib::navy::createZnsDevice(
+        config.getZnsPath() + "_",
+        totalCacheSize,
+        config.getTruncateFile(),
+        0x1000,
+        nullptr,
+        262144,
+        true,
+        false);
+      proto.setDeviceForBigHash(std::move(znsForBigHash));
+    }
     auto bigHashCacheOffset = setupBigHash(config.bigHash(), ioAlignSize,
                                            totalCacheSize, metadataSize, proto);
     blockCacheSize = bigHashCacheOffset - metadataSize;
@@ -196,6 +227,7 @@ void setupCacheProtos(const navy::NavyConfig& config,
   if (blockCacheSize > 0) {
     setupBlockCache(config.blockCache(), blockCacheSize, ioAlignSize,
                     metadataSize, config.usesRaidFiles(), itemDestructorEnabled,
+                    config.znsConfig(),
                     proto);
   }
 }
@@ -250,6 +282,16 @@ std::unique_ptr<cachelib::navy::Device> createDevice(
         blockSize,
         std::move(encryptor),
         maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0);
+  } else if (config.usesZnsFiles()) {
+    return cachelib::navy::createZnsDevice(
+      config.getZnsPath(),
+      config.getFileSize(),
+      config.getTruncateFile(),
+      blockSize,
+      std::move(encryptor),
+      maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0,
+      config.znsConfig().getZnsRewrite(),
+      config.znsConfig().getZnsGCReset());
   } else {
     return cachelib::navy::createMemoryDevice(config.getFileSize(),
                                               std::move(encryptor), blockSize);

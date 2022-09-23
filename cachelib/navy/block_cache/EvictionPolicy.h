@@ -41,6 +41,8 @@ class EvictionPolicy {
   // Evicts a region and stops tracking.
   virtual RegionId evict() = 0;
 
+  virtual bool evictRegion(RegionId &id) = 0;
+
   // Resets policy to the initial state.
   virtual void reset() = 0;
 

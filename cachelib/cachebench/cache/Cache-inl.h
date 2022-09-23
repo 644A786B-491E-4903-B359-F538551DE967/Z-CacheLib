@@ -138,7 +138,15 @@ Cache<Allocator>::Cache(const CacheConfig& config,
                                            config_.nvmCacheSizeMB * MB,
                                            true /*truncateFile*/);
       } else {
-        nvmConfig.navyConfig.setSimpleFile(path, config_.nvmCacheSizeMB * MB);
+        if (config_.navyUseZns) {
+          XLOG(INFO, "Using Zoned Device.");
+          // nvmConfig.navyConfig.setDeviceMaxWriteSize(0x4000);
+          nvmConfig.navyConfig.setZnsFile(path, config_.nvmCacheSizeMB * MB, false);
+          nvmConfig.navyConfig.znsConfig().setZnsRewrite(config_.navyZnsRewrite);
+          nvmConfig.navyConfig.znsConfig().setZnsGCReset(config_.navyZnsGCReset);
+        } else {
+          nvmConfig.navyConfig.setSimpleFile(path, config_.nvmCacheSizeMB * MB);
+        }
       }
     } else if (config_.nvmCachePaths.size() > 1) {
       // set up a software raid-0 across each nvm cache path.

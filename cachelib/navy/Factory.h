@@ -82,6 +82,10 @@ class BlockCacheProto {
 
   // (Optional) Set if the preciseRemove flag.
   virtual void setPreciseRemove(bool preciseRemove) = 0;
+
+  virtual void setZnsConfig(ZnsConfig config) {
+    
+  }
 };
 
 // BigHash engine proto. BigHash is used to cache small objects (under 2KB)
@@ -120,11 +124,15 @@ class CacheProto {
   // Sets device that engine will use.
   virtual void setDevice(std::unique_ptr<Device> device) = 0;
 
+  // Sets device that bighash will use.
+  virtual void setDeviceForBigHash(std::unique_ptr<Device> device) {}
+
   // Sets metadata size.
   virtual void setMetadataSize(size_t metadataSize) = 0;
 
   // Set up block cache engine.
   virtual void setBlockCache(std::unique_ptr<BlockCacheProto> proto) = 0;
+
 
   // Set up big hash engine.
   virtual void setBigHash(std::unique_ptr<BigHashProto> proto,
@@ -206,6 +214,29 @@ std::unique_ptr<Device> createFileDevice(
     uint32_t blockSize,
     std::shared_ptr<DeviceEncryptor> encryptor,
     uint32_t maxDeviceWriteSize);
+
+// Creates a ZNS file device.
+//
+// @param fileName              name of the file
+// @param singleFileSize        size of the file
+// @param truncateFile          whether to truncate the file
+// @param blockSize             device block size
+// @param encryptor             encryption object
+// @param maxDeviceWriteSize    device maximum granularity of writes
+std::unique_ptr<Device> createZnsDevice(
+    std::string fileName,
+    uint64_t znsDeviceSize,
+    bool truncateFile,
+    uint32_t blockSize,
+    std::shared_ptr<DeviceEncryptor> encryptor,
+    uint32_t maxDeviceWriteSize,
+    bool navyZnsRewrite,
+    bool navyZnsGCReset);
+
+std::unique_ptr<Device> createZnsDeviceForBigHash(
+    std::string fileName,
+    uint64_t zoneNumber,
+    std::shared_ptr<DeviceEncryptor> encryptor);
 
 } // namespace navy
 } // namespace cachelib

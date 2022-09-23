@@ -49,6 +49,7 @@ Driver::Driver(Config&& config, ValidConfigTag)
       maxParcelMemory_{config.maxParcelMemory},
       metadataSize_{config.metadataSize},
       device_{std::move(config.device)},
+      deviceForBigHash_{std::move(config.deviceForBigHash)},
       scheduler_{std::move(config.scheduler)},
       largeItemCache_{std::move(config.largeItemCache)},
       smallItemCache_{std::move(config.smallItemCache)},

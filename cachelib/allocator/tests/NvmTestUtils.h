@@ -18,6 +18,9 @@
 
 #include <folly/dynamic.h>
 
+#include <folly/logging/LogConfigParser.h>
+#include <folly/logging/LoggerDB.h>
+
 #include "cachelib/allocator/nvmcache/NavyConfig.h"
 
 namespace facebook {
@@ -35,6 +38,25 @@ inline NavyConfig getNvmTestConfig(const std::string& cacheDir) {
   config.bigHash()
       .setSizePctAndMaxItemSize(50, 100)
       .setBucketSize(1024)
+      .setBucketBfSize(8);
+  return config;
+}
+
+
+inline NavyConfig getNvmTestConfigWithZns() {
+  auto follyConfig = folly::parseLogConfig("DBG");
+  folly::LoggerDB::get().updateConfig(follyConfig);
+
+  NavyConfig config{};
+  config.setDeviceMaxWriteSize(0x4000);
+  config.setZnsFile("/dev/nvme0n2", 100 * 1024ULL * 1024ULL, false);
+  config.setDeviceMetadataSize(4 * 1024 * 1024);
+  config.setBlockSize(4 * 1024);
+  config.setNavyReqOrderingShards(10);
+  config.blockCache().setRegionSize(4 * 1024 * 1024);
+  config.bigHash()
+      .setSizePctAndMaxItemSize(50, 100)
+      .setBucketSize(1024 * 4)
       .setBucketBfSize(8);
   return config;
 }

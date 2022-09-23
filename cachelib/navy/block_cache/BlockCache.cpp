@@ -112,6 +112,7 @@ BlockCache::BlockCache(Config&& config)
 
 BlockCache::BlockCache(Config&& config, ValidConfigTag)
     : config_{serializeConfig(config)},
+      znsConfig_{config.znsConfig},
       numPriorities_{config.numPriorities},
       destructorCb_{std::move(config.destructorCb)},
       checksumData_{config.checksum},
@@ -134,6 +135,8 @@ BlockCache::BlockCache(Config&& config, ValidConfigTag)
                      std::move(config.evictionPolicy),
                      config.numInMemBuffers,
                      config.numPriorities,
+                     config.znsConfig.getZnsRewrite(),
+                     config.znsConfig.getZnsGCReset(),
                      config.inMemBufFlushRetryLimit},
       allocator_{regionManager_, config.numPriorities},
       reinsertionPolicy_{makeReinsertionPolicy(config.reinsertionConfig)},

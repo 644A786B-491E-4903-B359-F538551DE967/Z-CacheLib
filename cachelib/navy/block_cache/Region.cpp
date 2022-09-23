@@ -105,6 +105,8 @@ void Region::reset() {
   activeInMemReaders_ = 0;
   lastEntryEndOffset_ = 0;
   numItems_ = 0;
+  cntFlushedHit_ = 0;
+  cntMemHit_ = 0;
 }
 
 void Region::close(RegionDescriptor&& desc) {
@@ -144,6 +146,12 @@ void Region::writeToBuffer(uint32_t offset, BufferView buf) {
 void Region::readFromBuffer(uint32_t fromOffset,
                             MutableBufferView outBuf) const {
   std::lock_guard l{lock_};
+  if (isFlushedLocked()) {
+    // use hits in lru
+    // cntFlushedHit_ ++;
+  } else {
+    cntMemHit_ ++;
+  }
   XDCHECK_NE(buffer_, nullptr);
   XDCHECK_LE(fromOffset + outBuf.size(), buffer_->size());
   memcpy(outBuf.data(), buffer_->data() + fromOffset, outBuf.size());

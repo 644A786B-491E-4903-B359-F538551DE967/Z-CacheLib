@@ -34,6 +34,8 @@
 #include "cachelib/navy/serialization/RecordIO.h"
 #include "cachelib/navy/serialization/Serialization.h"
 
+#include <folly/synchronization/Baton.h>
+
 namespace facebook {
 namespace cachelib {
 namespace navy {
@@ -85,6 +87,8 @@ class RegionManager {
                 std::unique_ptr<EvictionPolicy> policy,
                 uint32_t numInMemBuffers,
                 uint16_t numPriorities,
+                bool useRewrite,
+                bool useReset,
                 uint16_t inMemBufFlushRetryLimit);
   RegionManager(const RegionManager&) = delete;
   RegionManager& operator=(const RegionManager&) = delete;
@@ -169,6 +173,8 @@ class RegionManager {
   // succeeded or not.
   Buffer read(const RegionDescriptor& desc, RelAddress addr, size_t size) const;
 
+  Buffer znsEvict(const RegionDescriptor& desc, RelAddress addr, size_t size, size_t evictSize) const;
+
   // Flushes all in memory buffers to the device and then issues device flush.
   void flush();
 
@@ -233,6 +239,8 @@ class RegionManager {
   // cleanup job (which will add the region to the clean list).
   JobExitCode startReclaim();
 
+  JobExitCode reclaimRegion(RegionId rid, folly::Baton<> &done);
+
   // Releases a region that was evicted during region reclamation.
   //
   // @param rid        region ID
@@ -250,6 +258,8 @@ class RegionManager {
   }
 
   bool deviceWrite(RelAddress addr, Buffer buf);
+
+  bool znsWrite(RelAddress addr, Buffer buf, uint64_t hotness);
 
   bool isValidIORange(uint32_t offset, uint32_t size) const;
   OpenStatus assignBufferToRegion(RegionId rid);
@@ -304,6 +314,10 @@ class RegionManager {
   // Locking order is region lock, followed by bufferMutex_;
   mutable std::mutex bufferMutex_;
   std::vector<std::unique_ptr<Buffer>> buffers_;
+  bool useStatsInLRU = true;
+
+  bool useRewrite_ = true;
+  bool useReset_ = false;
 };
 } // namespace navy
 } // namespace cachelib

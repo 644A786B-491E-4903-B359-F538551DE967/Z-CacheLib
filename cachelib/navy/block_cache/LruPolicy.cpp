@@ -21,6 +21,7 @@
 
 #include <cstdio>
 
+#include "cachelib/navy/common/Types.h"
 #include "cachelib/navy/common/Utils.h"
 
 namespace facebook {
@@ -67,6 +68,52 @@ void LruPolicy::track(const Region& region) {
     linkAtHead(i);
   }
 }
+
+bool LruPolicy::evictRegion(RegionId &rid) {
+  XDCHECK(rid.valid());
+  auto i = rid.index();
+  std::lock_guard<std::mutex> lock{mutex_};
+  if (i >= array_.size()) {
+    array_.resize(i + 1);
+  }
+  if (array_[i].inList()) {
+    array_[i].hits++;
+    array_[i].lastUpdateTime = getSteadyClockSeconds();
+    unlink(i);
+    return true;
+    // linkAtHead(i);
+  }
+  return false;
+}
+
+bool LruPolicy::readLRUInfo(RegionId &rid, std::map<std::string, double> &lruInfo) {
+  XDCHECK(rid.valid());
+  auto i = rid.index();
+  std::lock_guard<std::mutex> lock{mutex_};
+  if (i >= array_.size()) {
+    array_.resize(i + 1);
+  }
+  if (array_[i].inList()) {
+    auto secsSinceCreate = array_[i].secondsSinceCreation().count();
+    auto secsSinceAccess = array_[i].secondsSinceAccess().count();
+    auto hits = array_[i].hits;
+    lruInfo["secsSinceCreate"] = secsSinceCreate;
+    lruInfo["secsSinceAccess"] = secsSinceAccess;
+    lruInfo["hits"] = hits;
+    // for (int i = 0; i < 10; i++) {
+      // 
+    // }
+    // here effect the stats
+    // secSinceInsertionEstimator_.trackValue(secsSinceCreate);
+    // secSinceAccessEstimator_.trackValue(secsSinceAccess);
+    lruResetEstimator_.trackValue(secsSinceAccess);
+    hitsResetEstimator_.trackValue(hits);
+    // hitsEstimator_.trackValue(hits);
+    return true;
+  }
+  return false;
+}
+
 
 RegionId LruPolicy::evict() {
   uint32_t retRegion{kInvalidIndex};
@@ -184,6 +231,12 @@ void LruPolicy::dumpList(const char* tag,
 }
 
 void LruPolicy::getCounters(const CounterVisitor& v) const {
+  // navy_bc_lru_region_hits_estimate_avg
+  // navy_bc_lru_secs_since_insertion_avg
+  // navy_bc_lru_secs_since_access_avg
+  lruResetEstimator_.visitQuantileEstimator(v, "navy_bc_lru_reset");
+  hitsResetEstimator_.visitQuantileEstimator(v, "navy_bc_hits_reset");
+
   secSinceInsertionEstimator_.visitQuantileEstimator(
       v, "navy_bc_lru_secs_since_insertion");
   secSinceAccessEstimator_.visitQuantileEstimator(

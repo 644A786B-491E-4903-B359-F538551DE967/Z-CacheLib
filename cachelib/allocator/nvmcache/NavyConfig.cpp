@@ -29,6 +29,12 @@ const std::string& NavyConfig::getFileName() const {
   XDCHECK(usesSimpleFile());
   return fileName_;
 }
+
+const std::string& NavyConfig::getZnsPath() const {
+  XDCHECK(usesZnsFiles());
+  return znsPath_;
+}
+
 const std::vector<std::string>& NavyConfig::getRaidPaths() const {
   XDCHECK(usesRaidFiles());
   return raidPaths_;
@@ -71,6 +77,20 @@ void NavyConfig::setSimpleFile(const std::string& fileName,
     throw std::invalid_argument("already set RAID files");
   }
   fileName_ = fileName;
+  fileSize_ = fileSize;
+  truncateFile_ = truncateFile;
+}
+
+void NavyConfig::setZnsFile(const std::string& fileName,
+                               uint64_t fileSize,
+                               bool truncateFile) {
+  if (usesRaidFiles()) {
+    throw std::invalid_argument("already set RAID files");
+  }
+  if (usesSimpleFile()) {
+    throw std::invalid_argument("already set a simple file");
+  }
+  znsPath_ = fileName;
   fileSize_ = fileSize;
   truncateFile_ = truncateFile;
 }

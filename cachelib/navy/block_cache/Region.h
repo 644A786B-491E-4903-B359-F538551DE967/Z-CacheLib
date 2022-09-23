@@ -203,6 +203,16 @@ class Region {
     return activeInMemReaders_;
   }
 
+  uint32_t getMemHit() const {
+    std::lock_guard l{lock_};
+    return cntMemHit_;
+  }
+
+  uint32_t getFlushedHit() const {
+    std::lock_guard l{lock_};
+    return cntFlushedHit_;
+  }
+
   // Returns the region id.
   RegionId id() const { return regionId_; }
 
@@ -227,6 +237,9 @@ class Region {
 
   const RegionId regionId_{};
   const uint64_t regionSize_{0};
+
+  mutable uint64_t cntMemHit_{0};
+  mutable uint64_t cntFlushedHit_{0};
 
   uint16_t priority_{0};
   uint16_t flags_{0};

@@ -398,6 +398,27 @@ class BigHashConfig {
   uint64_t smallItemMaxSize_{};
 };
 
+class ZnsConfig {
+ public:
+  ZnsConfig& setZnsRewrite(bool znsRewrite) {
+    znsRewrite_ = znsRewrite;
+    return *this;
+  }
+
+  ZnsConfig& setZnsGCReset(bool znsGCReset) {
+    znsGCReset_ = znsGCReset;
+    return *this;
+  }
+
+  bool getZnsRewrite() const { return znsRewrite_; }
+
+  bool getZnsGCReset() const { return znsGCReset_; }
+
+ private:
+  bool znsRewrite_{true};
+  bool znsGCReset_{false};
+};
+
 /**
  * NavyConfig provides APIs for users to set up Navy related settings for
  * NvmCache.
@@ -416,6 +437,7 @@ class NavyConfig {
 
  public:
   bool usesSimpleFile() const noexcept { return !fileName_.empty(); }
+  bool usesZnsFiles() const noexcept { return !znsPath_.empty(); }
   bool usesRaidFiles() const noexcept { return raidPaths_.size() > 0; }
   bool isBigHashEnabled() const { return bigHashConfig_.getSizePct() > 0; }
   std::map<std::string, std::string> serialize() const;
@@ -435,6 +457,7 @@ class NavyConfig {
   // ============ Device settings =============
   uint64_t getBlockSize() const { return blockSize_; }
   const std::string& getFileName() const;
+  const std::string& getZnsPath() const;
   const std::vector<std::string>& getRaidPaths() const;
   uint64_t getDeviceMetadataSize() const { return deviceMetadataSize_; }
   uint64_t getFileSize() const { return fileSize_; }
@@ -446,6 +469,8 @@ class NavyConfig {
 
   // Return a const BlockCacheConfig to read values of its parameters.
   const BlockCacheConfig& blockCache() const { return blockCacheConfig_; }
+
+  const ZnsConfig& znsConfig() const { return znsConfig_; }
 
   // ============ Job scheduler settings =============
   unsigned int getReaderThreads() const { return readerThreads_; }
@@ -474,6 +499,14 @@ class NavyConfig {
   void setSimpleFile(const std::string& fileName,
                      uint64_t fileSize,
                      bool truncateFile = false);
+
+  // Set the parameters for a ZNS file.
+  // @throw std::invalid_argument if RAID files have been already set.
+  // @throw std::invalid_argument if simple file have been already set.
+  void setZnsFile(const std::string& fileName,
+                     uint64_t fileSize,
+                     bool truncateFile = false);
+
   // Set the parameters for RAID files.
   // @throw std::invalid_argument if a simple file has been already set
   //        or there is only one or fewer RAID paths.
@@ -498,6 +531,9 @@ class NavyConfig {
   // ============ BigHash settings =============
   // Return BigHashConfig for configuration.
   BigHashConfig& bigHash() noexcept { return bigHashConfig_; }
+  
+  // ============ Zns settings =============
+  ZnsConfig& znsConfig() noexcept { return znsConfig_; }
 
   // ============ Job scheduler settings =============
   void setReaderAndWriterThreads(unsigned int readerThreads,
@@ -530,6 +566,10 @@ class NavyConfig {
   uint64_t blockSize_{4096};
   // The file name/path for caching.
   std::string fileName_;
+
+  // The zns name/path for caching.
+  std::string znsPath_;
+  
   // An array of Navy RAID device file paths.
   std::vector<std::string> raidPaths_;
   // The size of the metadata partition on the Navy device.
@@ -548,6 +588,9 @@ class NavyConfig {
 
   // ============ BigHash settings =============
   BigHashConfig bigHashConfig_{};
+
+  // ============ Zns setting =============
+  ZnsConfig znsConfig_{};
 
   // ============ Job scheduler settings =============
   // Number of asynchronous worker thread for read operation.

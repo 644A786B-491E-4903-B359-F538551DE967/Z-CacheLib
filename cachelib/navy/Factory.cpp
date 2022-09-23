@@ -121,6 +121,10 @@ class BlockCacheProtoImpl final : public BlockCacheProto {
     return std::make_unique<BlockCache>(std::move(config_));
   }
 
+  void setZnsConfig(ZnsConfig config) {
+    config_.znsConfig = config;
+  }
+
  private:
   BlockCache::Config config_;
 };
@@ -187,6 +191,11 @@ class CacheProtoImpl final : public CacheProto {
 
   void setDevice(std::unique_ptr<Device> device) override {
     config_.device = std::move(device);
+  }
+
+  void setDeviceForBigHash(std::unique_ptr<Device> device) override {
+    // config_.device = std::move(device);
+    config_.deviceForBigHash = std::move(device);
   }
 
   void setMetadataSize(size_t size) override { config_.metadataSize = size; }
@@ -261,7 +270,11 @@ class CacheProtoImpl final : public CacheProto {
     if (bigHashProto_) {
       auto bhProto = dynamic_cast<BigHashProtoImpl*>(bigHashProto_.get());
       if (bhProto != nullptr) {
-        bhProto->setDevice(config_.device.get());
+        if (config_.deviceForBigHash != nullptr) {
+          bhProto->setDevice(config_.deviceForBigHash.get());
+        } else {
+          bhProto->setDevice(config_.device.get());
+        }
         bhProto->setDestructorCb(destructorCb_);
         config_.smallItemCache = std::move(*bhProto).create();
       }
@@ -396,6 +409,20 @@ std::unique_ptr<Device> createFileDevice(
   }
   return createDirectIoFileDevice(std::move(f), singleFileSize, blockSize,
                                   std::move(encryptor), maxDeviceWriteSize);
+}
+
+std::unique_ptr<Device> createZnsDevice(
+    std::string fileName,
+    uint64_t znsDeviceSize,
+    bool truncateFile,
+    uint32_t blockSize,
+    std::shared_ptr<DeviceEncryptor> encryptor,
+    uint32_t maxDeviceWriteSize,
+    bool navyZnsRewrite,
+    bool navyZnsGCReset) {
+  return createZonedDevice(fileName, znsDeviceSize, blockSize,
+                                  std::move(encryptor), maxDeviceWriteSize,
+                                  navyZnsRewrite, navyZnsGCReset);
 }
 
 } // namespace navy

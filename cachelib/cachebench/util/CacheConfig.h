@@ -108,6 +108,16 @@ struct CacheConfig : public JSONConfig {
   // to be a physical device identifier;
   std::vector<std::string> writeAmpDeviceList{};
 
+  // Navy specific: zns device
+  bool navyUseZns{false};
+
+  // Navy specific: enable device rewrite, like the regular SSD
+  // if false, we should use `evict` in Cache engine
+  bool navyZnsRewrite{false};
+
+  // Navy specific: use reset to process garbage collection by evicting extra data
+  bool navyZnsGCReset{true};
+
   // Navy specific: block size in bytes
   uint64_t navyBlockSize{512};
 

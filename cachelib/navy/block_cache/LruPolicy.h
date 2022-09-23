@@ -24,6 +24,7 @@
 
 #include "cachelib/common/PercentileStats.h"
 #include "cachelib/navy/block_cache/EvictionPolicy.h"
+#include "cachelib/navy/common/Types.h"
 #include "cachelib/navy/common/Utils.h"
 
 namespace facebook {
@@ -49,6 +50,10 @@ class LruPolicy final : public EvictionPolicy {
 
   // Evicts the least recently used region and stops tracking.
   RegionId evict() override;
+
+  bool evictRegion(RegionId &id) override;
+
+  bool readLRUInfo(RegionId &id, std::map<std::string, double> &lruInfo);
 
   // Resets LRU policy to the initial state.
   void reset() override;
@@ -110,6 +115,9 @@ class LruPolicy final : public EvictionPolicy {
   mutable util::PercentileStats secSinceInsertionEstimator_;
   mutable util::PercentileStats secSinceAccessEstimator_;
   mutable util::PercentileStats hitsEstimator_;
+  mutable util::PercentileStats lruResetEstimator_;
+  mutable util::PercentileStats hitsResetEstimator_;
+
 };
 } // namespace navy
 } // namespace cachelib

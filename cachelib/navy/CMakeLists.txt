@@ -39,6 +39,7 @@ add_library (cachelib_navy
   scheduler/ThreadPoolJobScheduler.cpp
   scheduler/ThreadPoolJobQueue.cpp
   serialization/RecordIO.cpp
+  zone_cache/ZonedDevice.cpp
   )
 add_dependencies(cachelib_navy thrift_generated_files)
 
@@ -52,11 +53,16 @@ endif()
 
 target_link_libraries(cachelib_navy PUBLIC
   cachelib_common
+  zbd
+  explain
   )
 
 install(TARGETS cachelib_navy
         EXPORT cachelib-exports
         DESTINATION ${LIB_INSTALL_DIR} )
+
+SET(CMAKE_CXX_FLAGS_DEBUG "-O0")
+SET(CMAKE_C_FLAGS_DEBUG "-O0")
 
 if (BUILD_TESTS)
   add_library(navy_test_support
