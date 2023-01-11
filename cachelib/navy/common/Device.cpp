@@ -214,7 +214,7 @@ class MemoryDevice final : public Device {
 
 bool Device::write(uint64_t offset, Buffer buffer) {
   const auto size = buffer.size();
-  XCHECK_LE(offset + buffer.size(), size_);
+  // XCHECK_LE(offset + buffer.size(), size_);
   uint8_t* data = reinterpret_cast<uint8_t*>(buffer.data());
   XCHECK_EQ(reinterpret_cast<uint64_t>(data) % ioAlignmentSize_, 0ul);
   if (encryptor_) {
@@ -265,7 +265,7 @@ bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
   XCHECK_EQ(reinterpret_cast<uint64_t>(value) % ioAlignmentSize_, 0ul);
   XCHECK_EQ(offset % ioAlignmentSize_, 0ul);
   XCHECK_EQ(size % ioAlignmentSize_, 0ul);
-  XCHECK_LE(offset + size, size_);
+  // XCHECK_LE(offset + size, size_);
   auto timeBegin = getSteadyClock();
   bool result = readImpl(offset, size, value);
   readLatencyEstimator_.trackValue(
@@ -297,7 +297,7 @@ bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
 // An empty buffer is returned in case of error and the caller must check
 // the buffer size returned with size passed in to check for errors.
 Buffer Device::read(uint64_t offset, uint32_t size) {
-  XCHECK_LE(offset + size, size_);
+  // XCHECK_LE(offset + size, size_);
   uint64_t readOffset =
       offset & ~(static_cast<uint64_t>(ioAlignmentSize_) - 1ul);
   uint64_t readPrefixSize =

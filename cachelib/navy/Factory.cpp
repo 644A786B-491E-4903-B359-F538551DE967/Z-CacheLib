@@ -27,6 +27,7 @@
 #include "cachelib/navy/block_cache/BlockCache.h"
 #include "cachelib/navy/block_cache/FifoPolicy.h"
 #include "cachelib/navy/block_cache/LruPolicy.h"
+#include "cachelib/navy/common/Device.h"
 #include "cachelib/navy/driver/Driver.h"
 #include "cachelib/navy/serialization/RecordIO.h"
 
@@ -424,6 +425,18 @@ std::unique_ptr<Device> createZnsDevice(
                                   std::move(encryptor), maxDeviceWriteSize,
                                   navyZnsRewrite, navyZnsGCReset);
 }
+
+
+ std::unique_ptr<Device> createDirectZnsDevice(
+     std::string fileName,
+     uint64_t znsDeviceSize,
+     bool truncateFile,
+     uint32_t blockSize,
+     std::shared_ptr<DeviceEncryptor> encryptor,
+     uint32_t maxDeviceWriteSize) {
+   return createDirectIoZNSDevice(fileName, znsDeviceSize, blockSize,
+                                   std::move(encryptor), maxDeviceWriteSize);
+ }
 
 } // namespace navy
 } // namespace cachelib

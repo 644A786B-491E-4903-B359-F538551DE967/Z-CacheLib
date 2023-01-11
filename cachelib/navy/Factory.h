@@ -238,6 +238,13 @@ std::unique_ptr<Device> createZnsDeviceForBigHash(
     uint64_t zoneNumber,
     std::shared_ptr<DeviceEncryptor> encryptor);
 
+ std::unique_ptr<Device> createDirectZnsDevice(
+     std::string fileName,
+     uint64_t znsDeviceSize,
+     bool truncateFile,
+     uint32_t blockSize,
+     std::shared_ptr<DeviceEncryptor> encryptor,
+     uint32_t maxDeviceWriteSize);
 } // namespace navy
 } // namespace cachelib
 } // namespace facebook

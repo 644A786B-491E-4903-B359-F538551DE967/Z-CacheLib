@@ -74,6 +74,11 @@ RegionManager::RegionManager(uint32_t numRegions,
       const std::unique_ptr<LruPolicy>& lru = (const std::unique_ptr<LruPolicy>&)policy_;
       auto inLRU = lru->readLRUInfo(rid, lruInfo);
       if (useStatsInLRU && inLRU) { 
+        numberBottomUpRegion ++;
+        if (numberBottomUpRegion % 100 == 0) {
+          XLOGF(INFO, "smart reset ratio {}", 1 - (double)numberEvictRegion / (double)numberBottomUpRegion);
+        }
+
         double secsSinceAccess = lruInfo.at("secsSinceAccess");
         double secondsSinceCreation = lruInfo.at("secsSinceCreate");
         double hits = lruInfo.at("hits");
@@ -105,7 +110,16 @@ RegionManager::RegionManager(uint32_t numRegions,
           return true;
         }
       }
-      // async
+      auto ret = false;
+      if (not useStatsInLRU) {
+        auto resetPercent = 1.0;
+        double val = (double)rand() / RAND_MAX;
+        if (val < 1 - resetPercent) {
+          // keep
+          return true;
+        }
+      }
+      numberEvictRegion ++;
       policy_->evictRegion(rid);
       reclaimRegion(rid, done);
       return false;
@@ -164,11 +178,19 @@ Region::FlushRes RegionManager::flushBuffer(const RegionId& rid) {
     auto writeBuffer = device_.makeIOBuffer(view.size());
     writeBuffer.copyFrom(0, view);
     auto err = true;
-    if (useReset_) {
-      err = !znsWrite(addr, std::move(writeBuffer), hits);
-    } else {
+    auto hotness = true;
+
+    if (useDirectZNS) {
+      XLOGF(INFO, "flush to {}", addr.rid().index());
       err = !deviceWrite(addr, std::move(writeBuffer));
+    } else {
+      if (hotness or useReset_) {
+        err = !znsWrite(addr, std::move(writeBuffer), hits);
+      } else {
+        err = !deviceWrite(addr, std::move(writeBuffer));
+      }
     }
+
     if (err) {
       std::this_thread::sleep_for(std::chrono::milliseconds(200));
       return false;
@@ -619,10 +641,23 @@ bool RegionManager::deviceWrite(RelAddress addr, Buffer buf) {
   const auto bufSize = buf.size();
   XDCHECK(isValidIORange(addr.offset(), bufSize));
   auto physOffset = physicalOffset(addr);
+
+  if (useDirectZNS) {
+    auto& zns = (DirectZonedDevice&)device_;
+    zns.reset(physOffset);
+    zns.open(physOffset);
+  }
+
   if (!device_.write(physOffset, std::move(buf))) {
     return false;
   }
   physicalWrittenCount_.add(bufSize);
+  
+  if (useDirectZNS) {
+    auto& zns = (DirectZonedDevice&)device_;
+    zns.finish(physOffset);
+  }
+
   return true;
 }
 

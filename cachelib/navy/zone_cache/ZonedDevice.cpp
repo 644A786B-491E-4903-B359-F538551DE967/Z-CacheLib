@@ -30,7 +30,7 @@ void ZonedDevice::initZoneInfo() {
     // 800G
     // deviceInfo_.nr_zones = 768;
     // 10000G
-    deviceInfo_.nr_zones = 956;
+    // deviceInfo_.nr_zones = 956;
     // max open zone is 14
     maxWrtingZoneNumber = 12;
   }
@@ -581,7 +581,7 @@ bool ZonedDevice::cleanData(std::shared_ptr<Zone> &from, uint64_t offset, uint64
   auto callback = [&](std::shared_ptr<DataBlockInfo> &info) -> bool {
     auto binfo = *info;
     folly::Baton<> done;
-    if (useStatsInLRU) {
+    if (bottomUpEvicion) {
       bool keep = resetCallback_(binfo.logOffset, done);
       if (keep) {
         return callback2(info);
@@ -949,6 +949,17 @@ std::unique_ptr<Device> createTestZonedDevice(
       XDCHECK(ioAlignSize == 0x1000);
   return std::move(createZonedDevice("/dev/nvme0n2", size, ioAlignSize, encryptor, 1024 * 1024, true, false));
 }
+
+
+ std::unique_ptr<Device> createDirectIoZNSDevice(
+     folly::StringPiece file,
+     uint64_t size,
+     uint32_t ioAlignSize,
+     std::shared_ptr<DeviceEncryptor> encryptor,
+     uint32_t maxDeviceWriteSize) {
+   XDCHECK(folly::isPowTwo(ioAlignSize));
+  return std::make_unique<DirectZonedDevice>(file.str(), size, ioAlignSize, encryptor, maxDeviceWriteSize, O_RDWR);
+ }
 
 }
 }

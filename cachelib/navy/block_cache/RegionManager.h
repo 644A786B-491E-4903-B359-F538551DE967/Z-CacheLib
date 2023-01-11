@@ -138,11 +138,20 @@ class RegionManager {
 
   // Converts @RelAddress to @AbsAddress.
   AbsAddress toAbsolute(RelAddress ra) const {
+    if (useDirectZNS) {
+      uint64_t cap = 0x80000000;
+      return AbsAddress{ra.offset() + ra.rid().index() * cap};
+    }
     return AbsAddress{ra.offset() + ra.rid().index() * regionSize_};
   }
 
   // Converts @AbsAddress to @RelAddress.
   RelAddress toRelative(AbsAddress aa) const {
+    if (useDirectZNS) {
+      uint64_t cap = 0x80000000;
+      return RelAddress{RegionId(aa.offset() / cap),
+                  uint32_t(aa.offset() % cap)};
+    }
     // Compiler optimizes to use one division instruction
     return RelAddress{RegionId(aa.offset() / regionSize_),
                       uint32_t(aa.offset() % regionSize_)};
@@ -314,10 +323,15 @@ class RegionManager {
   // Locking order is region lock, followed by bufferMutex_;
   mutable std::mutex bufferMutex_;
   std::vector<std::unique_ptr<Buffer>> buffers_;
+  // set `false` to reset random
   bool useStatsInLRU = true;
+  uint64_t numberBottomUpRegion = 0;
+  uint64_t numberEvictRegion = 0;
 
   bool useRewrite_ = true;
   bool useReset_ = false;
+
+  bool useDirectZNS = false;
 };
 } // namespace navy
 } // namespace cachelib

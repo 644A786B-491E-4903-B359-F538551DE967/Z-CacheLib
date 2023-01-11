@@ -221,6 +221,14 @@ std::unique_ptr<Device> createTestZonedDevice(
     uint64_t size,
     std::shared_ptr<DeviceEncryptor> encryptor,
     uint32_t ioAlignSize = 0x1000);
+
+
+ std::unique_ptr<Device> createDirectIoZNSDevice(
+     folly::StringPiece file,
+     uint64_t size,
+     uint32_t ioAlignSize,
+     std::shared_ptr<DeviceEncryptor> encryptor,
+     uint32_t maxDeviceWriteSize);
 } // namespace navy
 } // namespace cachelib
 } // namespace facebook

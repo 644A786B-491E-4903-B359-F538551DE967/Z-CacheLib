@@ -283,15 +283,27 @@ std::unique_ptr<cachelib::navy::Device> createDevice(
         std::move(encryptor),
         maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0);
   } else if (config.usesZnsFiles()) {
-    return cachelib::navy::createZnsDevice(
-      config.getZnsPath(),
-      config.getFileSize(),
-      config.getTruncateFile(),
-      blockSize,
-      std::move(encryptor),
-      maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0,
-      config.znsConfig().getZnsRewrite(),
-      config.znsConfig().getZnsGCReset());
+    if (true) {
+      return cachelib::navy::createZnsDevice(
+        config.getZnsPath(),
+        config.getFileSize(),
+        config.getTruncateFile(),
+        blockSize,
+        std::move(encryptor),
+        maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0,
+        config.znsConfig().getZnsRewrite(),
+        config.znsConfig().getZnsGCReset());
+    } else {
+    // useDirectZNS
+      return cachelib::navy::createDirectZnsDevice(
+        config.getZnsPath(),
+        config.getFileSize(),
+        config.getTruncateFile(),
+        blockSize,
+        std::move(encryptor),
+        maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0);
+    }
+
   } else {
     return cachelib::navy::createMemoryDevice(config.getFileSize(),
                                               std::move(encryptor), blockSize);

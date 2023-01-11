@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdexcept>
 #include <tuple>
 
 #include <folly/logging/xlog.h>
@@ -105,6 +106,10 @@ class Zone {
     return {AppendStatus::DONE, dataOffset};
   }
 
+  ssize_t read(uint8_t* buf, uint64_t size, uint64_t offset) {
+    return pread(fd_, buf, size, offset);
+  }
+
   bool open() {
     // std::lock_guard<std::mutex> l(lock_);
     return doZoneCtrlOperation(zbd_zone_op::ZBD_OP_OPEN);
@@ -112,7 +117,7 @@ class Zone {
 
   bool reset() {
     XLOG(DBG, "lock invalidlock in reset");
-    std::lock_guard<std::mutex> lk(invalidlock_);
+    // std::lock_guard<std::mutex> lk(invalidlock_);
     // std::lock_guard<std::mutex> l(lock_);
 
     // invalidData.clear();
@@ -209,66 +214,71 @@ class Zone {
     // XLOG(INFO, "unlock invalidlock in mark");
   }
 
+  // need lock
+  std::shared_ptr<DataBlockInfo> findByPhysicalAddress(uint64_t paddr) {
+      auto it = logicalMapping_.find(paddr);
+      if (it == logicalMapping_.end()) {
+        throw std::logic_error("can not get the logical address!");
+      }
+      return it->second;
+      // auto &info = it->second;
+  }
 
+  // other zone may invalidate address
   void foreachValidBlock(uint64_t offset, uint64_t endOffset,
     std::function<void()> preProcess,
     std::function<bool(std::shared_ptr<DataBlockInfo>&)> callback) {
-    // int l = 0;
-    int l = offset / bitBlockSize;
-    int r = l;
-    while (r < bitmap.size()) {
-      // should lock map
-      if (preProcess)
-        preProcess();
+    uint64_t l = (offset - getStart()) / bitBlockSize;
+    while (l < bitmap.size()) {
+      // mappingLock_.lock();
       std::lock_guard<std::mutex> m2lock(invalidlock_);
-      // valid
-      while (r < bitmap.size() and bitmap[r] == false) r++;
-      if (r - l > 0) {
-        foreachValidSpace(start_ + l * bitBlockSize, start_ + r * bitBlockSize, callback);
+      // invalidlock_.lock();
+      
+      while (l < bitmap.size() and bitmap[l] == true) l++;
+      if (l == bitmap.size()) {
+        // mappingLock_.unlock();
+        // invalidlock_.unlock();
+        break;
       }
-      // invalid
-      while (r < bitmap.size() and bitmap[r] == true) r++;
-      l = r;
+      
+      // get logical address of l
+      int64_t ll = getStart() + l * bitBlockSize;
+      auto info = findByPhysicalAddress(ll);
+
+      // auto it = logicalMapping_.find(ll);
+      // if (it == logicalMapping_.end()) {
+      //   // mappingLock_.unlock();
+      //   // invalidlock_.unlock();
+      //   throw std::logic_error("can not get the logical address!");
+      // }
+
+      // auto &info = it->second;
+      
+      callback(info);
+      // invalidlock_.unlock();
+      // update l and cnt
+      l += info->size / bitBlockSize;
     }
   }
 
-  void foreachValidBlock(uint64_t offset, uint64_t endOffset, 
-    std::function<bool(std::shared_ptr<DataBlockInfo>&)> callback) {
-    std::lock_guard<std::mutex> m2lock(invalidlock_);
-    // int l = 0;
-    int l = offset / bitBlockSize;
-    int r = l;
-    while (r < bitmap.size()) {
-      // should lock map
-      // valid
-      while (r < bitmap.size() and bitmap[r] == false) r++;
-      if (r - l > 0) {
-        foreachValidSpace(start_ + l * bitBlockSize, start_ + r * bitBlockSize, callback);
+  void foreachValidBlock(uint64_t offset, uint64_t endOffset,
+    std::function<uint64_t(uint64_t paddr)> callback) {
+    uint64_t l = (offset - getStart()) / bitBlockSize;
+    while (l < bitmap.size()) {
+      std::lock_guard<std::mutex> m2lock(invalidlock_);
+      
+      while (l < bitmap.size() and bitmap[l] == true) l++;
+      if (l == bitmap.size()) {
+        break;
       }
-      // invalid
-      while (r < bitmap.size() and bitmap[r] == true) r++;
-      l = r;
+      
+      int64_t paddr = getStart() + l * bitBlockSize;
+      auto sz = callback(paddr);
+      // update l and cnt
+      l += sz / bitBlockSize;
     }
-
-    // // std::lock_guard<std::mutex> lk(lock_);
-    // uint64_t l = offset;
-    // // can be optimized by reducing number of calling foreach
-    // // (1, 2) (4, 6) (6, 9)    12
-    // // 
-    // // assert the (l1, r1) < (l2, r2)
-    // // asume endOffset is a valid address
-    // // 
-    // for (auto [r, il] : invalidData) {
-    //   if (l < r) {
-    //     if (r > endOffset) r = endOffset;
-    //     foreachValidSpace(l, r, callback);
-    //   }
-    //   l = std::max(l, il);
-    // }
-    // if (l < endOffset) {
-    //   foreachValidSpace(l, endOffset, callback);
-    // }
   }
+
 
   void insertLogicalMapping(uint64_t k, std::shared_ptr<DataBlockInfo> v) {
     // std::lock_guard<std::mutex> lk(lock_);
@@ -304,33 +314,6 @@ class Zone {
   bool doZoneCtrlOperation(zbd_zone_op op) {
     auto res = zbd_zones_operation(fd_, op, start_, len_);
     return res;
-  }
-
-  // Zone > Space > Block
-  void foreachValidSpace(uint64_t l, uint64_t r, std::function<bool(std::shared_ptr<DataBlockInfo>&)> callback) {
-    // XLOGF(INFO, "l: 0x{:X} r: 0x{:X}", l, r);
-    
-    while (l < r) {
-      // handle not find
-      auto it = logicalMapping_.find(l);
-      if (it == logicalMapping_.end()) {
-        // auto lid = l % deviceInfo_.zone_size;
-        XLOGF(ERR, "l: 0x{:X} r: 0x{:X} can't find l in reverseMapping_.", l, r);
-        XLOGF(ERR, "zone is not full, so we can't find l=0x{:X} in reverseMapping_.", l, r);
-        break;
-        // TODO don't throw
-        // throw std::logic_error("valid space should can be found in reverseMapping.");
-      }
-      auto &info = it->second;
-      // [l, r) is valid
-      auto ok = callback(info);
-      if (!ok) {
-        // throw
-        XLOGF(ERR, "callback return false when handle block zns: 0x{:X} log: 0x{:X} sz: {}.", info->znsOffset, info->logOffset, info->size);
-        throw std::logic_error("callback return false");
-      }
-      l += info->size;
-    }
   }
 
 };
