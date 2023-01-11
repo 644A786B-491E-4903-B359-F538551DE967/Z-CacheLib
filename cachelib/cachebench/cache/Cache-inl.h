@@ -33,12 +33,14 @@ namespace facebook {
 namespace cachelib {
 namespace cachebench {
 
+
 template <typename Allocator>
 uint64_t Cache<Allocator>::fetchNandWrites() const {
   size_t total = 0;
   for (const auto& d : config_.writeAmpDeviceList) {
     try {
-      total += facebook::hw::nandWriteBytes(d);
+      // total += facebook::hw::nandWriteBytes(d);
+      total += facebook::hw::znsNandWriteBytes(d);
     } catch (const std::exception& e) {
       XLOGF(ERR, "Exception fetching nand writes for {}. Msg: {}", d, e.what());
       return 0;
@@ -46,6 +48,8 @@ uint64_t Cache<Allocator>::fetchNandWrites() const {
   }
   return total;
 }
+
+
 
 template <typename Allocator>
 Cache<Allocator>::Cache(const CacheConfig& config,
